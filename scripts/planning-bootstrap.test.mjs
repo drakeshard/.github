@@ -84,3 +84,19 @@ test("legacy unmarked issue body is retained as existing notes", () => {
   assert.match(updated, /## Existing notes/);
   assert.match(updated, /Legacy human body/);
 });
+
+
+test("accepts rich label objects", () => {
+  const payload = request();
+  payload.issues[0].labels = [{ name: "type:feature", color: "0E8A16", description: "Feature" }];
+  assert.equal(validatePlanningRequest(payload), payload);
+});
+
+test("managed body rerun keeps exactly one work ID marker", () => {
+  const first = managedIssueBody("RPG-I10", "First generated.", "");
+  const second = managedIssueBody("RPG-I10", "Second generated.", first);
+  const occurrences = second.split(workIdMarker("RPG-I10")).length - 1;
+  assert.equal(occurrences, 1);
+  assert.match(second, /Second generated/);
+  assert.doesNotMatch(second, /First generated/);
+});
