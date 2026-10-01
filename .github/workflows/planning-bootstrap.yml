@@ -73,6 +73,5 @@ jobs:
           CONTROL_GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           REQUEST_ISSUE: ${{ github.event_name == 'workflow_dispatch' && inputs.request_issue || github.event.issue.number }}
-          REQUEST_AUTHOR_ASSOCIATION: ${{ github.event_name == 'workflow_dispatch' && 'MANUAL' || github.event.issue.author_association }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
         run: node scripts/planning-bootstrap.mjs
