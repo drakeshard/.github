@@ -473,10 +473,10 @@ async function main() {
 
   const authorLogin = controlIssue.user?.login;
   assert(authorLogin, "planning request issue has no author login");
-  const { owner, repo } = splitRepo(controlRepo);
+  const { owner: controlOwner, repo: controlRepoName } = splitRepo(controlRepo);
   const permissionState = await githubRequest(
     controlToken,
-    `/repos/${owner}/${repo}/collaborators/${encodeURIComponent(authorLogin)}/permission`,
+    `/repos/${controlOwner}/${controlRepoName}/collaborators/${encodeURIComponent(authorLogin)}/permission`,
   );
   assert(
     isTrustedControlPermission(permissionState.permission),
