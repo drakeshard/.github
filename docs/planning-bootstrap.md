@@ -36,7 +36,7 @@ Configure these in `drakeshard/.github` Actions settings:
 
 Never commit the private key.
 
-The workflow creates a short-lived installation token with `actions/create-github-app-token` and scopes it to the Drakeshard organization installation. The repository-scoped workflow `GITHUB_TOKEN` has read-only Issues access and is used only to read the control request body. For issue-triggered runs, trust is derived from the immutable Actions event `author_association` and only OWNER/MEMBER are accepted. Manual workflow dispatch is explicitly trusted because GitHub limits dispatch to repository users with appropriate access. All cross-repository writes use the Planning Bot installation token.
+The workflow creates a short-lived installation token with `actions/create-github-app-token` and scopes it to the Drakeshard organization installation. The repository-scoped workflow `GITHUB_TOKEN` has read-only Issues access and is used only to read the control request and verify the request author's permission on `drakeshard/.github`. Only authors with `write`, `maintain`, or `admin` permission are accepted, which works consistently for UI-created and connector-created issues. All cross-repository writes use the Planning Bot installation token.
 
 ## Request format
 
@@ -138,7 +138,7 @@ Automatic issue-event execution is non-dry-run and closes the request issue afte
 
 - target repositories must be under `drakeshard/*`;\n- v1 accepts only public target repositories because the planning request body is stored in the public `drakeshard/.github` control repository; use a separately approved private control channel before managing private/proprietary repositories;
 - Project owner must be `drakeshard`;
-- automatic execution only accepts request issues authored by organization OWNER or MEMBER accounts;
+- automatic execution only accepts request issues whose author has write, maintain, or admin permission on `drakeshard/.github`;
 - architecture decisions, repository/package creation, releases, merges, and dependency-unblocking policy are outside this workflow;
 - GitHub App credentials exist only in Actions configuration.
 
