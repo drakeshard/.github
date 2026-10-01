@@ -53,7 +53,18 @@ export function validatePlanningRequest(request) {
       assert(Number.isInteger(issue.issueNumber) && issue.issueNumber > 0, `issues[${index}].issueNumber must be a positive integer`);
     }
     if (issue.labels !== undefined) {
-      assert(Array.isArray(issue.labels) && issue.labels.every((label) => typeof label === "string" && label.trim()), `issues[${index}].labels must be non-empty strings`);
+      assert(
+        Array.isArray(issue.labels) &&
+          issue.labels.every(
+            (label) =>
+              (typeof label === "string" && label.trim()) ||
+              (label &&
+                typeof label === "object" &&
+                typeof label.name === "string" &&
+                label.name.trim()),
+          ),
+        `issues[${index}].labels must contain non-empty strings or label objects with a name`,
+      );
     }
     if (issue.projectFields !== undefined) {
       assert(issue.projectFields && typeof issue.projectFields === "object" && !Array.isArray(issue.projectFields), `issues[${index}].projectFields must be an object`);
@@ -76,7 +87,10 @@ export function managedIssueBody(workId, generatedBody, existingBody = "") {
   const endIndex = existingBody.indexOf(MANAGED_END);
 
   if (startIndex >= 0 && endIndex > startIndex) {
-    const before = existingBody.slice(0, startIndex).replace(/\s+$/, "");
+    const before = existingBody
+      .slice(0, startIndex)
+      .replace(workIdMarker(workId), "")
+      .replace(/\s+$/, "");
     const after = existingBody.slice(endIndex + MANAGED_END.length).replace(/^\s+/, "");
     return [before, managed, after].filter(Boolean).join("\n\n");
   }
@@ -236,10 +250,15 @@ export async function upsertIssue(token, request, item, milestoneNumber, dryRun)
   }
 
   const body = managedIssueBody(item.workId, item.body, existing?.body ?? "");
+  const existingLabels =
+    existing?.labels
+      ?.map((label) => (typeof label === "string" ? label : label.name))
+      .filter(Boolean) ?? [];
+  const mergedLabels = [...new Set([...existingLabels, ...labels])];
   const payload = {
     title: item.title,
     body,
-    labels,
+    labels: mergedLabels,
     milestone: milestoneNumber > 0 ? milestoneNumber : null,
   };
 
@@ -377,6 +396,11 @@ async function setProjectFields(token, project, itemId, values) {
 
 export async function applyPlanningRequest(token, request, { dryRun = false } = {}) {
   validatePlanningRequest(request);
+  const repositoryState = await githubRequest(token, `/repos/${request.repository}`);
+  assert(
+    repositoryState.visibility === "public",
+    "v1 planning bootstrap only supports public target repositories because the control request is stored in the public drakeshard/.github repository",
+  );
   const milestone = await ensureMilestone(token, request.repository, request.milestone, dryRun);
   const project = request.project && !dryRun ? await resolveProject(token, request.project) : null;
   const results = [];
