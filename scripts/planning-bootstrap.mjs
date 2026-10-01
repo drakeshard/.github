@@ -15,8 +15,8 @@ export function isPlanningRequestBody(body) {
   return typeof body === "string" && body.includes(REQUEST_MARKER);
 }
 
-export function isTrustedRequestAssociation(value) {
-  return ["OWNER", "MEMBER", "MANUAL"].includes(value);
+export function isTrustedControlPermission(value) {
+  return ["write", "maintain", "admin"].includes(String(value).toLowerCase());
 }
 
 export function parsePlanningRequest(body) {
@@ -457,7 +457,6 @@ async function main() {
   const token = process.env.GH_TOKEN;
   const controlToken = process.env.CONTROL_GH_TOKEN;
   const controlRepo = process.env.GITHUB_REPOSITORY;
-  const requestAuthorAssociation = process.env.REQUEST_AUTHOR_ASSOCIATION;
   const issueNumber = Number(process.env.REQUEST_ISSUE);
   const dryRun = String(process.env.DRY_RUN ?? "false").toLowerCase() === "true";
 
@@ -465,13 +464,24 @@ async function main() {
   assert(controlToken, "CONTROL_GH_TOKEN is required");
   assert(controlRepo === "drakeshard/.github", "workflow must run from drakeshard/.github");
   assert(Number.isInteger(issueNumber) && issueNumber > 0, "REQUEST_ISSUE must be a positive integer");
-  assert(isTrustedRequestAssociation(requestAuthorAssociation), "planning request must be from an organization OWNER/MEMBER or trusted manual dispatch");
 
   const controlIssue = await fetchIssue(controlToken, controlRepo, issueNumber);
   if (!isPlanningRequestBody(controlIssue.body ?? "")) {
     console.log(`Issue #${issueNumber} is not a planning request; nothing to do.`);
     return;
   }
+
+  const authorLogin = controlIssue.user?.login;
+  assert(authorLogin, "planning request issue has no author login");
+  const { owner, repo } = splitRepo(controlRepo);
+  const permissionState = await githubRequest(
+    controlToken,
+    `/repos/${owner}/${repo}/collaborators/${encodeURIComponent(authorLogin)}/permission`,
+  );
+  assert(
+    isTrustedControlPermission(permissionState.permission),
+    "planning request author must have write, maintain, or admin permission on drakeshard/.github",
+  );
 
   const request = parsePlanningRequest(controlIssue.body ?? "");
   const summary = await applyPlanningRequest(token, request, { dryRun });
