@@ -1,0 +1,81 @@
+name: Planning Bootstrap
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  workflow_dispatch:
+    inputs:
+      request_issue:
+        description: "Planning request issue number in drakeshard/.github"
+        required: true
+        type: number
+      dry_run:
+        description: "Validate and report without GitHub writes"
+        required: true
+        default: true
+        type: boolean
+  pull_request:
+    paths:
+      - ".github/workflows/planning-bootstrap.yml"
+      - "scripts/planning-bootstrap.mjs"
+      - "scripts/planning-bootstrap.test.mjs"
+      - "docs/planning-bootstrap.md"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24.21.0"
+
+      - name: Unit tests
+        run: node --test scripts/planning-bootstrap.test.mjs
+
+      - name: Syntax check
+        run: node --check scripts/planning-bootstrap.mjs
+
+  bootstrap:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issues' &&
+        (github.event.issue.author_association == 'OWNER' || github.event.issue.author_association == 'MEMBER') &&
+        contains(github.event.issue.body, '<!-- drakeshard-planning-request:v1 -->')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24.21.0"
+
+      - name: Create planning GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.PLANNING_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PLANNING_APP_PRIVATE_KEY }}
+          owner: drakeshard
+
+      - name: Apply planning request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REQUEST_ISSUE: ${{ github.event_name == 'workflow_dispatch' && inputs.request_issue || github.event.issue.number }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+        run: node scripts/planning-bootstrap.mjs
