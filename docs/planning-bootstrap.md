@@ -136,7 +136,7 @@ Automatic issue-event execution is non-dry-run and closes the request issue afte
 
 ## Security boundaries
 
-- target repositories must be under `drakeshard/*`;
+- target repositories must be under `drakeshard/*`;\n- v1 accepts only public target repositories because the planning request body is stored in the public `drakeshard/.github` control repository; use a separately approved private control channel before managing private/proprietary repositories;
 - Project owner must be `drakeshard`;
 - automatic execution only accepts request issues authored by organization OWNER or MEMBER accounts;
 - architecture decisions, repository/package creation, releases, merges, and dependency-unblocking policy are outside this workflow;
