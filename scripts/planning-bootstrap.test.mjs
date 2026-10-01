@@ -5,6 +5,7 @@ import {
   MANAGED_END,
   REQUEST_MARKER,
   isPlanningRequestBody,
+  isTrustedRequestAssociation,
   managedIssueBody,
   parsePlanningRequest,
   validatePlanningRequest,
@@ -106,4 +107,13 @@ test("managed body rerun keeps exactly one work ID marker", () => {
 test("detects planning request marker without parsing", () => {
   assert.equal(isPlanningRequestBody(`x\n${REQUEST_MARKER}\ny`), true);
   assert.equal(isPlanningRequestBody("ordinary issue"), false);
+});
+
+
+test("trusts owner/member issue events and manual dispatch", () => {
+  assert.equal(isTrustedRequestAssociation("OWNER"), true);
+  assert.equal(isTrustedRequestAssociation("MEMBER"), true);
+  assert.equal(isTrustedRequestAssociation("MANUAL"), true);
+  assert.equal(isTrustedRequestAssociation("CONTRIBUTOR"), false);
+  assert.equal(isTrustedRequestAssociation("NONE"), false);
 });
