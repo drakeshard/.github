@@ -11,8 +11,12 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+export function isPlanningRequestBody(body) {
+  return typeof body === "string" && body.includes(REQUEST_MARKER);
+}
+
 export function parsePlanningRequest(body) {
-  assert(typeof body === "string" && body.includes(REQUEST_MARKER), "planning request marker is missing");
+  assert(isPlanningRequestBody(body), "planning request marker is missing");
 
   const markerIndex = body.indexOf(REQUEST_MARKER);
   const afterMarker = body.slice(markerIndex + REQUEST_MARKER.length);
@@ -456,6 +460,11 @@ async function main() {
   assert(Number.isInteger(issueNumber) && issueNumber > 0, "REQUEST_ISSUE must be a positive integer");
 
   const controlIssue = await fetchIssue(token, controlRepo, issueNumber);
+  if (!isPlanningRequestBody(controlIssue.body ?? "")) {
+    console.log(`Issue #${issueNumber} is not a planning request; nothing to do.`);
+    return;
+  }
+
   assert(["OWNER", "MEMBER"].includes(controlIssue.author_association), "planning request author must be an organization OWNER or MEMBER");
 
   const request = parsePlanningRequest(controlIssue.body ?? "");

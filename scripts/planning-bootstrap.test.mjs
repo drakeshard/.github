@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   MANAGED_END,
   REQUEST_MARKER,
+  isPlanningRequestBody,
   managedIssueBody,
   parsePlanningRequest,
   validatePlanningRequest,
@@ -99,4 +100,10 @@ test("managed body rerun keeps exactly one work ID marker", () => {
   assert.equal(occurrences, 1);
   assert.match(second, /Second generated/);
   assert.doesNotMatch(second, /First generated/);
+});
+
+
+test("detects planning request marker without parsing", () => {
+  assert.equal(isPlanningRequestBody(`x\n${REQUEST_MARKER}\ny`), true);
+  assert.equal(isPlanningRequestBody("ordinary issue"), false);
 });

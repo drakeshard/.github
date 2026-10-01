@@ -45,13 +45,7 @@ jobs:
         run: node --check scripts/planning-bootstrap.mjs
 
   bootstrap:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'issues' &&
-        (github.event.issue.author_association == 'OWNER' || github.event.issue.author_association == 'MEMBER') &&
-        contains(github.event.issue.body, '<!-- drakeshard-planning-request:v1 -->')
-      )
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'issues'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
