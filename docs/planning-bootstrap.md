@@ -36,7 +36,7 @@ Configure these in `drakeshard/.github` Actions settings:
 
 Never commit the private key.
 
-The workflow creates a short-lived installation token with `actions/create-github-app-token` and scopes it to the Drakeshard organization installation.
+The workflow creates a short-lived installation token with `actions/create-github-app-token` and scopes it to the Drakeshard organization installation. The repository-scoped workflow `GITHUB_TOKEN` has read-only Issues access and is used only to authenticate the control request's author association; all cross-repository writes use the Planning Bot installation token.
 
 ## Request format
 
