@@ -451,15 +451,17 @@ function summaryMarkdown(summary) {
 
 async function main() {
   const token = process.env.GH_TOKEN;
+  const controlToken = process.env.CONTROL_GH_TOKEN;
   const controlRepo = process.env.GITHUB_REPOSITORY;
   const issueNumber = Number(process.env.REQUEST_ISSUE);
   const dryRun = String(process.env.DRY_RUN ?? "false").toLowerCase() === "true";
 
   assert(token, "GH_TOKEN is required");
+  assert(controlToken, "CONTROL_GH_TOKEN is required");
   assert(controlRepo === "drakeshard/.github", "workflow must run from drakeshard/.github");
   assert(Number.isInteger(issueNumber) && issueNumber > 0, "REQUEST_ISSUE must be a positive integer");
 
-  const controlIssue = await fetchIssue(token, controlRepo, issueNumber);
+  const controlIssue = await fetchIssue(controlToken, controlRepo, issueNumber);
   if (!isPlanningRequestBody(controlIssue.body ?? "")) {
     console.log(`Issue #${issueNumber} is not a planning request; nothing to do.`);
     return;
