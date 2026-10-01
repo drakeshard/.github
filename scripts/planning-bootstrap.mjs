@@ -15,6 +15,10 @@ export function isPlanningRequestBody(body) {
   return typeof body === "string" && body.includes(REQUEST_MARKER);
 }
 
+export function isTrustedRequestAssociation(value) {
+  return ["OWNER", "MEMBER", "MANUAL"].includes(value);
+}
+
 export function parsePlanningRequest(body) {
   assert(isPlanningRequestBody(body), "planning request marker is missing");
 
@@ -453,6 +457,7 @@ async function main() {
   const token = process.env.GH_TOKEN;
   const controlToken = process.env.CONTROL_GH_TOKEN;
   const controlRepo = process.env.GITHUB_REPOSITORY;
+  const requestAuthorAssociation = process.env.REQUEST_AUTHOR_ASSOCIATION;
   const issueNumber = Number(process.env.REQUEST_ISSUE);
   const dryRun = String(process.env.DRY_RUN ?? "false").toLowerCase() === "true";
 
@@ -460,14 +465,13 @@ async function main() {
   assert(controlToken, "CONTROL_GH_TOKEN is required");
   assert(controlRepo === "drakeshard/.github", "workflow must run from drakeshard/.github");
   assert(Number.isInteger(issueNumber) && issueNumber > 0, "REQUEST_ISSUE must be a positive integer");
+  assert(isTrustedRequestAssociation(requestAuthorAssociation), "planning request must be from an organization OWNER/MEMBER or trusted manual dispatch");
 
   const controlIssue = await fetchIssue(controlToken, controlRepo, issueNumber);
   if (!isPlanningRequestBody(controlIssue.body ?? "")) {
     console.log(`Issue #${issueNumber} is not a planning request; nothing to do.`);
     return;
   }
-
-  assert(["OWNER", "MEMBER"].includes(controlIssue.author_association), "planning request author must be an organization OWNER or MEMBER");
 
   const request = parsePlanningRequest(controlIssue.body ?? "");
   const summary = await applyPlanningRequest(token, request, { dryRun });
