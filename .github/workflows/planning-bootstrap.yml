@@ -23,6 +23,7 @@ on:
 
 permissions:
   contents: read
+  issues: read
 
 jobs:
   test:
@@ -69,6 +70,7 @@ jobs:
       - name: Apply planning request
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          CONTROL_GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           REQUEST_ISSUE: ${{ github.event_name == 'workflow_dispatch' && inputs.request_issue || github.event.issue.number }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
