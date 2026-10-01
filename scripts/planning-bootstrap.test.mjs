@@ -5,7 +5,7 @@ import {
   MANAGED_END,
   REQUEST_MARKER,
   isPlanningRequestBody,
-  isTrustedRequestAssociation,
+  isTrustedControlPermission,
   managedIssueBody,
   parsePlanningRequest,
   validatePlanningRequest,
@@ -110,10 +110,11 @@ test("detects planning request marker without parsing", () => {
 });
 
 
-test("trusts owner/member issue events and manual dispatch", () => {
-  assert.equal(isTrustedRequestAssociation("OWNER"), true);
-  assert.equal(isTrustedRequestAssociation("MEMBER"), true);
-  assert.equal(isTrustedRequestAssociation("MANUAL"), true);
-  assert.equal(isTrustedRequestAssociation("CONTRIBUTOR"), false);
-  assert.equal(isTrustedRequestAssociation("NONE"), false);
+test("trusts only control-repo write-or-higher permissions", () => {
+  assert.equal(isTrustedControlPermission("admin"), true);
+  assert.equal(isTrustedControlPermission("maintain"), true);
+  assert.equal(isTrustedControlPermission("write"), true);
+  assert.equal(isTrustedControlPermission("triage"), false);
+  assert.equal(isTrustedControlPermission("read"), false);
+  assert.equal(isTrustedControlPermission("none"), false);
 });
