@@ -343,10 +343,27 @@ export async function ensureLabel(token, repository, label, dryRun) {
   }
 
   if (!dryRun) {
-    await githubRequest(token, `/repos/${owner}/${repo}/labels`, {
-      method: "POST",
-      body: { name, color, description },
-    });
+    try {
+      await githubRequest(token, `/repos/${owner}/${repo}/labels`, {
+        method: "POST",
+        body: { name, color, description },
+      });
+    } catch (error) {
+      if (!String(error.message).includes("GitHub API 422")) throw error;
+      const raced = await githubRequest(
+        token,
+        `/repos/${owner}/${repo}/labels/${encodeURIComponent(name)}`,
+      );
+      const changed =
+        raced.color.toLowerCase() !== color.toLowerCase() ||
+        (raced.description ?? "") !== description;
+      if (changed) {
+        await githubRequest(token, `/repos/${owner}/${repo}/labels/${encodeURIComponent(name)}`, {
+          method: "PATCH",
+          body: { new_name: name, color, description },
+        });
+      }
+    }
   }
   return name;
 }
