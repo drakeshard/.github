@@ -292,9 +292,9 @@ export async function ensureMilestone(token, repository, milestone, dryRun) {
     const desired = {
       title: milestone.title,
       description: milestone.description ?? existing.description ?? "",
-      due_on: milestone.dueOn ?? existing.due_on ?? null,
       state: milestone.state ?? existing.state ?? "open",
     };
+    if (milestone.dueOn !== undefined) desired.due_on = milestone.dueOn;
     const changed =
       existing.description !== desired.description ||
       existing.due_on !== desired.due_on ||
@@ -316,8 +316,8 @@ export async function ensureMilestone(token, repository, milestone, dryRun) {
     body: {
       title: milestone.title,
       description: milestone.description ?? "",
-      due_on: milestone.dueOn ?? null,
       state: milestone.state ?? "open",
+      ...(milestone.dueOn !== undefined ? { due_on: milestone.dueOn } : {}),
     },
   });
 }

@@ -182,3 +182,10 @@ test("rejects repository bootstrap file path traversal", () => {
   assert.throws(() => validatePlanningRequest(payload), /repository-relative/);
 });
 
+
+
+test("milestone due dates are optional by contract", () => {
+  const payload = request();
+  delete payload.milestone.dueOn;
+  assert.equal(validatePlanningRequest(payload), payload);
+});
