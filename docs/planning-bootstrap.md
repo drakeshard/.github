@@ -30,6 +30,12 @@ Additional repository permissions for existing-repository file bootstrap:
 
 Repository creation is owner-only and is intentionally outside Planning Bootstrap. The owner creates the repository manually, then grants the Planning Bot access to that repository if the App installation is limited to selected repositories.
 
+For full configuration of an already-existing shared-library repository, also grant:
+
+- **Administration: Read and write** — reconcile the fixed shared-library merge settings, enable dependency graph/vulnerability alerts, and manage the repository-level main ruleset.
+
+This permission is deliberately constrained by code: Planning Bootstrap has no organization repository-creation endpoint and rejects `createIfMissing: true`. It also has no operation for rename, archive/delete, visibility change, ownership transfer, or default-branch changes.
+
 Minimum organization permission:
 
 - **Projects: Read and write**
@@ -93,13 +99,14 @@ Opening, editing, or reopening a trusted issue with the marker triggers the work
 
 Repository creation is owner-only and intentionally outside this workflow. Planning Bootstrap requires the target `drakeshard/*` repository to already exist.
 
-After the owner creates the repository, the request may synchronize approved baseline files:
+After the owner creates the repository, the request may synchronize approved baseline files and opt into the fixed shared-library administration profile:
 
 ```json
 {
   "repository": "drakeshard/tactical",
   "repositoryBootstrap": {
     "visibility": "public",
+    "adminProfile": "shared-library-v1",
     "files": [
       { "path": "README.md", "content": "# Drakeshard Tactical" }
     ]
@@ -107,7 +114,20 @@ After the owner creates the repository, the request may synchronize approved bas
 }
 ```
 
-A missing repository fails with an explicit owner-action message. File synchronization is idempotent and does not authorize stable package exports or publication. Repository settings and branch/ruleset administration remain owner/manual unless a narrower separately approved mechanism is introduced.
+A missing repository fails with an explicit owner-action message. File synchronization is idempotent and does not authorize stable package exports or publication.
+
+The only supported repository-admin profile is `shared-library-v1`. It reconciles only these existing-repository controls:
+
+- squash merging enabled;
+- merge commits disabled;
+- rebase merging disabled;
+- auto-merge enabled;
+- update-branch suggestions enabled;
+- delete merged branches enabled;
+- dependency graph/vulnerability alerts enabled;
+- repository-level `Protect main` ruleset requiring pull requests, resolved conversations, `Quality`, `Dependency Review`, linear history, no force-push, and no branch deletion.
+
+The profile cannot accept arbitrary repository settings from the request.
 
 ## Idempotency
 
@@ -194,6 +214,7 @@ Automatic issue-event execution is non-dry-run and closes the request issue afte
 - Project owner must be `drakeshard`;
 - automatic execution only accepts request issues whose author has write, maintain, or admin permission on `drakeshard/.github`;
 - architecture decisions, package publication/stable API admission, releases, merges, and dependency-unblocking policy are outside this workflow;
+- existing-repository administration is restricted to the fixed `shared-library-v1` profile;
 - repository creation is owner-only and is never performed by Planning Bootstrap;
 - Project v2 creation is allowed only for the `drakeshard` organization and only when the request explicitly sets `createIfMissing: true`;
 - GitHub App credentials exist only in Actions configuration.
