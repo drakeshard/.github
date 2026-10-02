@@ -196,7 +196,7 @@ To bootstrap a Project before its target repository exists, submit a project-onl
 }
 ```
 
-Project field creation currently supports `TEXT`, `NUMBER`, `DATE`, and `SINGLE_SELECT`. Existing fields are reused by name; missing requested fields are created. Iteration-field creation/configuration remains outside v1 because GitHub's iteration configuration requires separate lifecycle handling.
+Project field creation currently supports `TEXT`, `NUMBER`, `DATE`, and `SINGLE_SELECT`. Existing fields are reused by name; missing requested fields are created. For existing SINGLE_SELECT fields, approved missing options are appended while preserving existing option IDs and item values. Iteration-field creation/configuration remains outside v1 because GitHub's iteration configuration requires separate lifecycle handling.
 
 ## Dry run and retry
 
