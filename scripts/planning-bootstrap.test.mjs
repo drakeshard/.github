@@ -176,7 +176,6 @@ test("rejects repository bootstrap file path traversal", () => {
   const payload = {
     repository: "drakeshard/tactical",
     repositoryBootstrap: {
-      createIfMissing: true,
       files: [{ path: "../secret", content: "no" }],
     },
   };
