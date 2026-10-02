@@ -8,6 +8,7 @@ import {
   isTrustedControlPermission,
   managedIssueBody,
   parsePlanningRequest,
+  desiredRepositorySettings,
   validatePlanningRequest,
   workIdMarker,
 } from "./planning-bootstrap.mjs";
@@ -150,4 +151,50 @@ test("rejects unsupported project field types", () => {
     },
   };
   assert.throws(() => validatePlanningRequest(payload), /dataType must be/);
+});
+
+
+test("accepts explicit public repository bootstrap", () => {
+  const payload = {
+    repository: "drakeshard/tactical",
+    repositoryBootstrap: {
+      createIfMissing: true,
+      visibility: "public",
+      description: "Tactical",
+      files: [{ path: "README.md", content: "# Tactical" }],
+      mainRuleset: { requiredStatusChecks: ["Quality", "Dependency Review"] },
+    },
+  };
+  assert.equal(validatePlanningRequest(payload), payload);
+});
+
+test("rejects private repository bootstrap through public control channel", () => {
+  const payload = {
+    repository: "drakeshard/tactical",
+    repositoryBootstrap: { createIfMissing: true, visibility: "private" },
+  };
+  assert.throws(() => validatePlanningRequest(payload), /cannot create private repositories/);
+});
+
+test("rejects repository bootstrap file path traversal", () => {
+  const payload = {
+    repository: "drakeshard/tactical",
+    repositoryBootstrap: {
+      createIfMissing: true,
+      files: [{ path: "../secret", content: "no" }],
+    },
+  };
+  assert.throws(() => validatePlanningRequest(payload), /repository-relative/);
+});
+
+test("repository settings enforce shared-library merge policy", () => {
+  const settings = desiredRepositorySettings("drakeshard/tactical", { description: "Tactical" });
+  assert.equal(settings.name, "tactical");
+  assert.equal(settings.private, false);
+  assert.equal(settings.allow_squash_merge, true);
+  assert.equal(settings.allow_merge_commit, false);
+  assert.equal(settings.allow_rebase_merge, false);
+  assert.equal(settings.allow_auto_merge, true);
+  assert.equal(settings.allow_update_branch, true);
+  assert.equal(settings.delete_branch_on_merge, true);
 });

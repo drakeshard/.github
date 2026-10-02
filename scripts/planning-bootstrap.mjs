@@ -68,17 +68,44 @@ export function validatePlanningRequest(request) {
     }
   }
 
-  const hasRepositoryWork = request.repository !== undefined || request.milestone !== undefined || request.issues !== undefined;
+  const hasRepositoryWork =
+    request.repository !== undefined ||
+    request.repositoryBootstrap !== undefined ||
+    request.milestone !== undefined ||
+    request.issues !== undefined;
+
   if (hasRepositoryWork) {
     assert(
       typeof request.repository === "string" && /^drakeshard\/[A-Za-z0-9_.-]+$/.test(request.repository),
       "repository must target drakeshard/<repo>",
     );
-    assert(
-      request.milestone && typeof request.milestone.title === "string" && request.milestone.title.trim(),
-      "milestone.title is required",
-    );
-    assert(Array.isArray(request.issues) && request.issues.length > 0, "issues must contain at least one work item");
+
+    if (request.repositoryBootstrap !== undefined) {
+      const bootstrap = request.repositoryBootstrap;
+      assert(bootstrap && typeof bootstrap === "object" && !Array.isArray(bootstrap), "repositoryBootstrap must be an object");
+      assert(bootstrap.visibility !== "private", "public planning bootstrap cannot create private repositories");
+      if (bootstrap.visibility !== undefined) {
+        assert(bootstrap.visibility === "public", "repositoryBootstrap.visibility must be public");
+      }
+      if (bootstrap.files !== undefined) {
+        assert(Array.isArray(bootstrap.files), "repositoryBootstrap.files must be an array");
+        for (const [index, file] of bootstrap.files.entries()) {
+          assert(file && typeof file === "object", `repositoryBootstrap.files[${index}] must be an object`);
+          assert(typeof file.path === "string" && file.path.trim(), `repositoryBootstrap.files[${index}].path is required`);
+          assert(!file.path.startsWith("/") && !file.path.includes(".."), `repositoryBootstrap.files[${index}].path must be repository-relative`);
+          assert(typeof file.content === "string", `repositoryBootstrap.files[${index}].content must be a string`);
+        }
+      }
+    }
+
+    const hasIssueWork = request.milestone !== undefined || request.issues !== undefined;
+    if (hasIssueWork) {
+      assert(
+        request.milestone && typeof request.milestone.title === "string" && request.milestone.title.trim(),
+        "milestone.title is required",
+      );
+      assert(Array.isArray(request.issues) && request.issues.length > 0, "issues must contain at least one work item");
+    }
   } else {
     assert(request.project, "planning request must contain project or repository work");
   }
@@ -192,6 +219,175 @@ function splitRepo(repository) {
 async function listAll(token, path) {
   const separator = path.includes("?") ? "&" : "?";
   return githubRequest(token, `${path}${separator}per_page=100`);
+}
+
+export function desiredRepositorySettings(repository, bootstrap = {}) {
+  const { repo } = splitRepo(repository);
+  return {
+    name: repo,
+    description: bootstrap.description ?? "",
+    private: false,
+    has_issues: bootstrap.hasIssues ?? true,
+    has_projects: false,
+    has_wiki: bootstrap.hasWiki ?? false,
+    has_downloads: false,
+    has_discussions: bootstrap.hasDiscussions ?? false,
+    allow_squash_merge: true,
+    allow_merge_commit: false,
+    allow_rebase_merge: false,
+    allow_auto_merge: true,
+    allow_update_branch: true,
+    delete_branch_on_merge: true,
+  };
+}
+
+async function findRepository(token, repository) {
+  try {
+    return await githubRequest(token, `/repos/${repository}`);
+  } catch (error) {
+    if (String(error.message).includes("GitHub API 404")) return null;
+    throw error;
+  }
+}
+
+async function ensureRepositoryFile(token, repository, file, dryRun) {
+  const encodedPath = file.path.split("/").map(encodeURIComponent).join("/");
+  let existing = null;
+  try {
+    existing = await githubRequest(token, `/repos/${repository}/contents/${encodedPath}?ref=main`);
+  } catch (error) {
+    if (!String(error.message).includes("GitHub API 404")) throw error;
+  }
+
+  if (dryRun) {
+    return { path: file.path, action: existing ? "would-update" : "would-create" };
+  }
+
+  const payload = {
+    message: file.message ?? `bootstrap: sync ${file.path}`,
+    content: Buffer.from(file.content, "utf8").toString("base64"),
+    branch: "main",
+  };
+  if (existing?.sha) payload.sha = existing.sha;
+
+  await githubRequest(token, `/repos/${repository}/contents/${encodedPath}`, {
+    method: "PUT",
+    body: payload,
+  });
+  return { path: file.path, action: existing ? "updated" : "created" };
+}
+
+async function ensureMainRuleset(token, repository, rulesetConfig, dryRun) {
+  if (!rulesetConfig) return null;
+  const rulesets = await githubRequest(token, `/repos/${repository}/rulesets`);
+  const desiredName = rulesetConfig.name ?? "Protect main";
+  const existing = rulesets.find((candidate) => candidate.name === desiredName);
+
+  const payload = {
+    name: desiredName,
+    target: "branch",
+    enforcement: "active",
+    conditions: {
+      ref_name: {
+        include: ["~DEFAULT_BRANCH"],
+        exclude: [],
+      },
+    },
+    rules: [
+      { type: "deletion" },
+      { type: "non_fast_forward" },
+      {
+        type: "pull_request",
+        parameters: {
+          allowed_merge_methods: ["squash"],
+          dismiss_stale_reviews_on_push: false,
+          require_code_owner_review: false,
+          require_last_push_approval: false,
+          required_approving_review_count: 0,
+          required_review_thread_resolution: true,
+        },
+      },
+      {
+        type: "required_status_checks",
+        parameters: {
+          strict_required_status_checks_policy: true,
+          do_not_enforce_on_create: false,
+          required_status_checks: (rulesetConfig.requiredStatusChecks ?? ["Quality", "Dependency Review"]).map((context) => ({ context })),
+        },
+      },
+      { type: "required_linear_history" },
+    ],
+    bypass_actors: [],
+  };
+
+  if (dryRun) return { name: desiredName, action: existing ? "would-update" : "would-create" };
+
+  if (existing) {
+    await githubRequest(token, `/repos/${repository}/rulesets/${existing.id}`, {
+      method: "PUT",
+      body: payload,
+    });
+    return { name: desiredName, action: "updated" };
+  }
+
+  await githubRequest(token, `/repos/${repository}/rulesets`, {
+    method: "POST",
+    body: payload,
+  });
+  return { name: desiredName, action: "created" };
+}
+
+export async function ensureRepository(token, repository, bootstrap = {}, dryRun = false) {
+  assert(/^drakeshard\/[A-Za-z0-9_.-]+$/.test(repository), "repository must target drakeshard/<repo>");
+  assert(bootstrap.visibility !== "private", "public planning bootstrap cannot create private repositories");
+
+  let state = await findRepository(token, repository);
+  let created = false;
+
+  if (!state) {
+    assert(bootstrap.createIfMissing === true, `repository "${repository}" not found and createIfMissing is not true`);
+    if (dryRun) {
+      state = { full_name: repository, visibility: "public", default_branch: "main", dryRun: true };
+    } else {
+      const { owner } = splitRepo(repository);
+      assert(owner === "drakeshard", "repository owner must be drakeshard");
+      const desired = desiredRepositorySettings(repository, bootstrap);
+      state = await githubRequest(token, "/orgs/drakeshard/repos", {
+        method: "POST",
+        body: {
+          ...desired,
+          auto_init: true,
+        },
+      });
+      created = true;
+    }
+  }
+
+  assert(state.visibility === "public" || state.private === false, "planning bootstrap supports public target repositories only");
+
+  if (!dryRun) {
+    const desired = desiredRepositorySettings(repository, bootstrap);
+    state = await githubRequest(token, `/repos/${repository}`, {
+      method: "PATCH",
+      body: desired,
+    });
+  }
+
+  const files = [];
+  for (const file of bootstrap.files ?? []) {
+    files.push(await ensureRepositoryFile(token, repository, file, dryRun));
+  }
+
+  const ruleset = await ensureMainRuleset(token, repository, bootstrap.mainRuleset, dryRun);
+
+  return {
+    repository: state.full_name ?? repository,
+    created,
+    visibility: state.visibility ?? "public",
+    defaultBranch: state.default_branch ?? "main",
+    files,
+    ruleset,
+  };
 }
 
 export async function ensureMilestone(token, repository, milestone, dryRun) {
@@ -534,6 +730,9 @@ async function setProjectFields(token, project, itemId, values) {
 export async function applyPlanningRequest(token, request, { dryRun = false } = {}) {
   validatePlanningRequest(request);
 
+  const repositoryBootstrap = request.repository
+    ? await ensureRepository(token, request.repository, request.repositoryBootstrap ?? {}, dryRun)
+    : null;
   const project = request.project ? await ensureProject(token, request.project, dryRun) : null;
   if (!request.repository) {
     return {
@@ -545,11 +744,17 @@ export async function applyPlanningRequest(token, request, { dryRun = false } = 
     };
   }
 
-  const repositoryState = await githubRequest(token, `/repos/${request.repository}`);
-  assert(
-    repositoryState.visibility === "public",
-    "v1 planning bootstrap only supports public target repositories because the control request is stored in the public drakeshard/.github repository",
-  );
+  if (!request.milestone && !request.issues) {
+    return {
+      repository: request.repository,
+      repositoryBootstrap,
+      milestone: null,
+      project: project ? { number: project.number, title: project.title } : null,
+      dryRun,
+      results: [],
+    };
+  }
+
   const milestone = await ensureMilestone(token, request.repository, request.milestone, dryRun);
   const results = [];
 
@@ -571,6 +776,7 @@ export async function applyPlanningRequest(token, request, { dryRun = false } = 
 
   return {
     repository: request.repository,
+    repositoryBootstrap,
     milestone: milestone.title,
     project: project ? { number: project.number, title: project.title } : null,
     dryRun,
@@ -586,6 +792,9 @@ function summaryMarkdown(summary) {
     `## Planning bootstrap ${summary.dryRun ? "dry run" : "completed"}`,
     "",
     summary.repository ? `Repository: \`${summary.repository}\`` : null,
+    summary.repositoryBootstrap
+      ? `Repository bootstrap: \`${summary.repositoryBootstrap.created ? "created" : "reused"}\``
+      : null,
     summary.milestone ? `Milestone: \`${summary.milestone}\`` : null,
     summary.project ? `Project: \`#${summary.project.number} ${summary.project.title}\`` : null,
     "",
