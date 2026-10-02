@@ -561,7 +561,7 @@ async function queryProjectByNumber(token, owner, number) {
             nodes {
               __typename
               ... on ProjectV2Field { id name dataType }
-              ... on ProjectV2SingleSelectField { id name options { id name } }
+              ... on ProjectV2SingleSelectField { id name options { id name color description } }
               ... on ProjectV2IterationField { id name configuration { iterations { id title startDate duration } } }
             }
           }
@@ -645,11 +645,46 @@ async function createProjectField(token, projectId, field) {
 
 async function ensureProjectFields(token, project, requestedFields = []) {
   if (!requestedFields.length) return project;
-  const existingNames = new Set(project.fields.nodes.filter(Boolean).map((field) => field.name));
+  const existingByName = new Map(
+    project.fields.nodes.filter(Boolean).map((field) => [field.name, field]),
+  );
 
   for (const field of requestedFields) {
-    if (existingNames.has(field.name)) continue;
-    await createProjectField(token, project.id, field);
+    const existing = existingByName.get(field.name);
+    if (!existing) {
+      await createProjectField(token, project.id, field);
+      continue;
+    }
+
+    if (field.dataType === "SINGLE_SELECT" && Array.isArray(existing.options)) {
+      const existingNames = new Set(existing.options.map((option) => option.name));
+      const missing = field.options.filter((option) => !existingNames.has(option.name));
+      if (missing.length === 0) continue;
+
+      const options = [
+        ...existing.options.map((option) => ({
+          id: option.id,
+          name: option.name,
+          color: option.color,
+          description: option.description ?? "",
+        })),
+        ...missing.map((option) => ({
+          name: option.name,
+          color: option.color ?? "GRAY",
+          description: option.description ?? "",
+        })),
+      ];
+
+      await graphql(
+        token,
+        `mutation($field:ID!, $options:[ProjectV2SingleSelectFieldOptionInput!]) {
+          updateProjectV2Field(input:{fieldId:$field, singleSelectOptions:$options}) {
+            projectV2Field { ... on ProjectV2SingleSelectField { id name options { id name } } }
+          }
+        }`,
+        { field: existing.id, options },
+      );
+    }
   }
 
   return queryProjectByNumber(token, "drakeshard", project.number);
