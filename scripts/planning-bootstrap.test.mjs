@@ -253,3 +253,27 @@ test("shared-library main ruleset protects main with required checks", () => {
   assert.ok(ruleset.rules.some((rule) => rule.type === "non_fast_forward"));
   assert.ok(ruleset.rules.some((rule) => rule.type === "required_linear_history"));
 });
+
+
+test("project select field requests may include a completed state", () => {
+  const payload = {
+    project: {
+      owner: "drakeshard",
+      title: "Drakeshard Tactical v0.1",
+      createIfMissing: true,
+      fields: [
+        {
+          name: "Readiness",
+          dataType: "SINGLE_SELECT",
+          options: [
+            { name: "Ready", color: "GREEN" },
+            { name: "Backlog", color: "GRAY" },
+            { name: "Blocked", color: "RED" },
+            { name: "Done", color: "PURPLE" }
+          ]
+        }
+      ]
+    }
+  };
+  assert.equal(validatePlanningRequest(payload), payload);
+});
