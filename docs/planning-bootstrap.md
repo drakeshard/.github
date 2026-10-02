@@ -10,7 +10,7 @@ The expected flow is:
 
 1. an engineering assistant reads the canonical controlled Drive sources and the live target repository;
 2. the assistant resolves the approved work and produces a planning request issue in `drakeshard/.github`;
-3. this workflow validates the request and can explicitly create/reuse a public Drakeshard repository, seed its approved baseline files/ruleset, create/reuse an organization Project v2, create supported custom Project fields, and upsert GitHub milestones, labels, issues, Project membership, and Project field values;
+3. this workflow validates the request and can synchronize approved baseline files into an existing public Drakeshard repository, create/reuse an organization Project v2, create supported custom Project fields, and upsert GitHub milestones, labels, issues, Project membership, and Project field values;
 4. generated work is keyed by stable Drakeshard work IDs so reruns update instead of duplicating;
 5. controlled documentation is reconciled separately when material state or governance changes.
 
@@ -23,13 +23,12 @@ Minimum repository permissions for ordinary issue/milestone synchronization:
 - **Issues: Read and write**
 - **Metadata: Read**
 
-Additional repository permissions for repository bootstrap:
+Additional repository permissions for existing-repository file bootstrap:
 
-- **Administration: Read and write** — create/configure repositories and rulesets;
 - **Contents: Read and write** — seed/update repository files;
 - **Workflows: Read and write** — seed/update files under `.github/workflows/`.
 
-For true zero-touch creation of future repositories, install the Planning Bot for **All repositories** in the Drakeshard organization. If it is installed only on selected repositories, a newly created repository must be added to the App installation before later synchronization can manage it.
+Repository creation is owner-only and is intentionally outside Planning Bootstrap. The owner creates the repository manually, then grants the Planning Bot access to that repository if the App installation is limited to selected repositories.
 
 Minimum organization permission:
 
@@ -92,28 +91,23 @@ Opening, editing, or reopening a trusted issue with the marker triggers the work
 
 ## Repository bootstrap
 
-Repository creation is never inferred from a missing repository. It requires an explicit `repositoryBootstrap.createIfMissing: true` request and is restricted to public `drakeshard/*` repositories because the control request is public.
+Repository creation is owner-only and intentionally outside this workflow. Planning Bootstrap requires the target `drakeshard/*` repository to already exist.
 
-Example:
+After the owner creates the repository, the request may synchronize approved baseline files:
 
 ```json
 {
   "repository": "drakeshard/tactical",
   "repositoryBootstrap": {
-    "createIfMissing": true,
     "visibility": "public",
-    "description": "renderer-neutral discrete-battlefield tactical domain library for Drakeshard games",
     "files": [
       { "path": "README.md", "content": "# Drakeshard Tactical" }
-    ],
-    "mainRuleset": {
-      "requiredStatusChecks": ["Quality", "Dependency Review"]
-    }
+    ]
   }
 }
 ```
 
-Existing repositories are reused and their requested settings/files/ruleset are reconciled idempotently. Repository bootstrap does not authorize stable package exports or publication.
+A missing repository fails with an explicit owner-action message. File synchronization is idempotent and does not authorize stable package exports or publication. Repository settings and branch/ruleset administration remain owner/manual unless a narrower separately approved mechanism is introduced.
 
 ## Idempotency
 
@@ -200,7 +194,7 @@ Automatic issue-event execution is non-dry-run and closes the request issue afte
 - Project owner must be `drakeshard`;
 - automatic execution only accepts request issues whose author has write, maintain, or admin permission on `drakeshard/.github`;
 - architecture decisions, package publication/stable API admission, releases, merges, and dependency-unblocking policy are outside this workflow;
-- repository creation is allowed only when the approved planning request explicitly authorizes a public `drakeshard/*` repository with `repositoryBootstrap.createIfMissing: true`;
+- repository creation is owner-only and is never performed by Planning Bootstrap;
 - Project v2 creation is allowed only for the `drakeshard` organization and only when the request explicitly sets `createIfMissing: true`;
 - GitHub App credentials exist only in Actions configuration.
 
@@ -211,7 +205,7 @@ Planning Bootstrap v1 intentionally does not:
 - parse Google Drive;
 - maintain a second roadmap database;
 - decide library ownership;
-- invent repository authorization or package-publication authorization;
+- create repositories or invent repository/package-publication authorization;
 - infer missing dependencies;
 - automatically promote blocked work to Ready;
 - merge implementation pull requests;
