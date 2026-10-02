@@ -118,3 +118,36 @@ test("trusts only control-repo write-or-higher permissions", () => {
   assert.equal(isTrustedControlPermission("read"), false);
   assert.equal(isTrustedControlPermission("none"), false);
 });
+
+
+test("accepts project-only bootstrap requests", () => {
+  const payload = {
+    project: {
+      owner: "drakeshard",
+      title: "Drakeshard Tactical v0.1",
+      createIfMissing: true,
+      fields: [
+        {
+          name: "Readiness",
+          dataType: "SINGLE_SELECT",
+          options: [{ name: "Ready" }, { name: "Backlog" }, { name: "Blocked" }],
+        },
+        { name: "Work ID", dataType: "TEXT" },
+        { name: "Effort", dataType: "NUMBER" },
+      ],
+    },
+  };
+  assert.equal(validatePlanningRequest(payload), payload);
+});
+
+test("rejects unsupported project field types", () => {
+  const payload = {
+    project: {
+      owner: "drakeshard",
+      title: "Bad Project",
+      createIfMissing: true,
+      fields: [{ name: "Iteration", dataType: "ITERATION" }],
+    },
+  };
+  assert.throws(() => validatePlanningRequest(payload), /dataType must be/);
+});
