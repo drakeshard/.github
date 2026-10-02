@@ -8,6 +8,8 @@ import {
   isTrustedControlPermission,
   managedIssueBody,
   parsePlanningRequest,
+  sharedLibraryMainRuleset,
+  sharedLibraryRepositorySettings,
   validatePlanningRequest,
   workIdMarker,
 } from "./planning-bootstrap.mjs";
@@ -198,4 +200,56 @@ test("label upsert contract remains valid for shared label reuse", () => {
     { name: "area:core", color: "0052CC", description: "Core" },
   ];
   assert.equal(validatePlanningRequest(payload), payload);
+});
+
+
+test("accepts the fixed shared-library existing-repo admin profile", () => {
+  const payload = {
+    repository: "drakeshard/tactical",
+    repositoryBootstrap: {
+      visibility: "public",
+      adminProfile: "shared-library-v1",
+    },
+  };
+  assert.equal(validatePlanningRequest(payload), payload);
+});
+
+test("rejects arbitrary repository admin profiles", () => {
+  const payload = {
+    repository: "drakeshard/tactical",
+    repositoryBootstrap: {
+      visibility: "public",
+      adminProfile: "anything-goes",
+    },
+  };
+  assert.throws(() => validatePlanningRequest(payload), /adminProfile must be/);
+});
+
+test("shared-library repository settings are narrow and squash-only", () => {
+  assert.deepEqual(sharedLibraryRepositorySettings(), {
+    allow_squash_merge: true,
+    allow_merge_commit: false,
+    allow_rebase_merge: false,
+    allow_auto_merge: true,
+    allow_update_branch: true,
+    delete_branch_on_merge: true,
+  });
+});
+
+test("shared-library main ruleset protects main with required checks", () => {
+  const ruleset = sharedLibraryMainRuleset();
+  assert.equal(ruleset.name, "Protect main");
+  assert.deepEqual(ruleset.conditions.ref_name.include, ["~DEFAULT_BRANCH"]);
+  const pullRequest = ruleset.rules.find((rule) => rule.type === "pull_request");
+  assert.deepEqual(pullRequest.parameters.allowed_merge_methods, ["squash"]);
+  assert.equal(pullRequest.parameters.required_review_thread_resolution, true);
+  const checks = ruleset.rules.find((rule) => rule.type === "required_status_checks");
+  assert.deepEqual(
+    checks.parameters.required_status_checks.map((item) => item.context),
+    ["Dependency Review", "Quality"],
+  );
+  assert.equal(checks.parameters.strict_required_status_checks_policy, true);
+  assert.ok(ruleset.rules.some((rule) => rule.type === "deletion"));
+  assert.ok(ruleset.rules.some((rule) => rule.type === "non_fast_forward"));
+  assert.ok(ruleset.rules.some((rule) => rule.type === "required_linear_history"));
 });
