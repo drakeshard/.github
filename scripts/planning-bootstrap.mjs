@@ -87,6 +87,12 @@ export function validatePlanningRequest(request) {
       if (bootstrap.visibility !== undefined) {
         assert(bootstrap.visibility === "public", "repositoryBootstrap.visibility must be public");
       }
+      if (bootstrap.adminProfile !== undefined) {
+        assert(
+          bootstrap.adminProfile === "shared-library-v1",
+          'repositoryBootstrap.adminProfile must be "shared-library-v1"',
+        );
+      }
       if (bootstrap.files !== undefined) {
         assert(Array.isArray(bootstrap.files), "repositoryBootstrap.files must be an array");
         for (const [index, file] of bootstrap.files.entries()) {
@@ -257,6 +263,108 @@ async function ensureRepositoryFile(token, repository, file, dryRun) {
   return { path: file.path, action: existing ? "updated" : "created" };
 }
 
+export function sharedLibraryRepositorySettings() {
+  return {
+    allow_squash_merge: true,
+    allow_merge_commit: false,
+    allow_rebase_merge: false,
+    allow_auto_merge: true,
+    allow_update_branch: true,
+    delete_branch_on_merge: true,
+  };
+}
+
+export function sharedLibraryMainRuleset() {
+  return {
+    name: "Protect main",
+    target: "branch",
+    enforcement: "active",
+    conditions: {
+      ref_name: {
+        include: ["~DEFAULT_BRANCH"],
+        exclude: [],
+      },
+    },
+    rules: [
+      { type: "deletion" },
+      { type: "non_fast_forward" },
+      {
+        type: "pull_request",
+        parameters: {
+          allowed_merge_methods: ["squash"],
+          dismiss_stale_reviews_on_push: false,
+          require_code_owner_review: false,
+          require_last_push_approval: false,
+          required_approving_review_count: 0,
+          required_review_thread_resolution: true,
+        },
+      },
+      {
+        type: "required_status_checks",
+        parameters: {
+          strict_required_status_checks_policy: true,
+          do_not_enforce_on_create: false,
+          required_status_checks: [
+            { context: "Dependency Review" },
+            { context: "Quality" },
+          ],
+        },
+      },
+      { type: "required_linear_history" },
+    ],
+    bypass_actors: [],
+  };
+}
+
+async function ensureSharedLibraryAdminProfile(token, repository, dryRun) {
+  const settings = sharedLibraryRepositorySettings();
+  const rulesetPayload = sharedLibraryMainRuleset();
+
+  if (dryRun) {
+    return {
+      profile: "shared-library-v1",
+      settings: "would-reconcile",
+      dependencyGraph: "would-enable",
+      ruleset: "would-reconcile",
+    };
+  }
+
+  await githubRequest(token, `/repos/${repository}`, {
+    method: "PATCH",
+    body: settings,
+  });
+
+  // GitHub's vulnerability-alerts endpoint enables both dependency alerts and
+  // the dependency graph for the repository.
+  await githubRequest(token, `/repos/${repository}/vulnerability-alerts`, {
+    method: "PUT",
+  });
+
+  const rulesets = await githubRequest(token, `/repos/${repository}/rulesets`);
+  const existing = rulesets.find(
+    (candidate) => candidate.name === rulesetPayload.name && candidate.target === "branch",
+  );
+
+  if (existing) {
+    await githubRequest(token, `/repos/${repository}/rulesets/${existing.id}`, {
+      method: "PUT",
+      body: rulesetPayload,
+    });
+  } else {
+    await githubRequest(token, `/repos/${repository}/rulesets`, {
+      method: "POST",
+      body: rulesetPayload,
+    });
+  }
+
+  return {
+    profile: "shared-library-v1",
+    settings: "reconciled",
+    dependencyGraph: "enabled",
+    ruleset: existing ? "updated" : "created",
+  };
+}
+
 export async function ensureRepository(token, repository, bootstrap = {}, dryRun = false) {
   assert(/^drakeshard\/[A-Za-z0-9_.-]+$/.test(repository), "repository must target drakeshard/<repo>");
   assert(bootstrap.createIfMissing !== true, "repository creation is owner-only; create the repository manually before running Planning Bootstrap");
@@ -268,6 +376,11 @@ export async function ensureRepository(token, repository, bootstrap = {}, dryRun
   );
   assert(state.visibility === "public" || state.private === false, "planning bootstrap supports public target repositories only");
 
+  const admin =
+    bootstrap.adminProfile === "shared-library-v1"
+      ? await ensureSharedLibraryAdminProfile(token, repository, dryRun)
+      : null;
+
   const files = [];
   for (const file of bootstrap.files ?? []) {
     files.push(await ensureRepositoryFile(token, repository, file, dryRun));
@@ -278,8 +391,8 @@ export async function ensureRepository(token, repository, bootstrap = {}, dryRun
     created: false,
     visibility: state.visibility ?? "public",
     defaultBranch: state.default_branch ?? "main",
+    admin,
     files,
-    ruleset: null,
   };
 }
 
