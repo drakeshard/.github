@@ -39,17 +39,52 @@ export function parsePlanningRequest(body) {
 
 export function validatePlanningRequest(request) {
   assert(request && typeof request === "object" && !Array.isArray(request), "planning request must be an object");
-  assert(typeof request.repository === "string" && /^drakeshard\/[A-Za-z0-9_.-]+$/.test(request.repository), "repository must target drakeshard/<repo>");
-  assert(request.milestone && typeof request.milestone.title === "string" && request.milestone.title.trim(), "milestone.title is required");
-  assert(Array.isArray(request.issues) && request.issues.length > 0, "issues must contain at least one work item");
 
   if (request.project) {
     assert((request.project.owner ?? "drakeshard") === "drakeshard", "project.owner must be drakeshard");
-    assert(Number.isInteger(request.project.number) || (typeof request.project.title === "string" && request.project.title.trim()), "project.number or project.title is required");
+    assert(
+      Number.isInteger(request.project.number) ||
+        (typeof request.project.title === "string" && request.project.title.trim()),
+      "project.number or project.title is required",
+    );
+    if (request.project.fields !== undefined) {
+      assert(Array.isArray(request.project.fields), "project.fields must be an array");
+      for (const [index, field] of request.project.fields.entries()) {
+        assert(field && typeof field === "object", `project.fields[${index}] must be an object`);
+        assert(typeof field.name === "string" && field.name.trim(), `project.fields[${index}].name is required`);
+        assert(
+          ["TEXT", "NUMBER", "DATE", "SINGLE_SELECT"].includes(field.dataType),
+          `project.fields[${index}].dataType must be TEXT, NUMBER, DATE, or SINGLE_SELECT`,
+        );
+        if (field.dataType === "SINGLE_SELECT") {
+          assert(
+            Array.isArray(field.options) &&
+              field.options.length > 0 &&
+              field.options.every((option) => option && typeof option.name === "string" && option.name.trim()),
+            `project.fields[${index}].options must contain named options`,
+          );
+        }
+      }
+    }
+  }
+
+  const hasRepositoryWork = request.repository !== undefined || request.milestone !== undefined || request.issues !== undefined;
+  if (hasRepositoryWork) {
+    assert(
+      typeof request.repository === "string" && /^drakeshard\/[A-Za-z0-9_.-]+$/.test(request.repository),
+      "repository must target drakeshard/<repo>",
+    );
+    assert(
+      request.milestone && typeof request.milestone.title === "string" && request.milestone.title.trim(),
+      "milestone.title is required",
+    );
+    assert(Array.isArray(request.issues) && request.issues.length > 0, "issues must contain at least one work item");
+  } else {
+    assert(request.project, "planning request must contain project or repository work");
   }
 
   const ids = new Set();
-  for (const [index, issue] of request.issues.entries()) {
+  for (const [index, issue] of (request.issues ?? []).entries()) {
     assert(issue && typeof issue === "object", `issues[${index}] must be an object`);
     assert(typeof issue.workId === "string" && /^[A-Z][A-Z0-9-]*[0-9][A-Z0-9-]*$/.test(issue.workId), `issues[${index}].workId is invalid`);
     assert(!ids.has(issue.workId), `duplicate workId: ${issue.workId}`);
@@ -89,7 +124,7 @@ export function managedIssueBody(workId, generatedBody, existingBody = "") {
     start,
     generatedBody.trim(),
     MANAGED_END,
-  ].join("\n");
+  ].filter((line) => line !== null).join("\n");
 
   const startIndex = existingBody.indexOf(MANAGED_START_PREFIX);
   const endIndex = existingBody.indexOf(MANAGED_END);
@@ -296,35 +331,117 @@ export async function upsertIssue(token, request, item, milestoneNumber, dryRun)
   return { action: "created", issue: created, body, payload };
 }
 
-async function resolveProject(token, project) {
-  if (project.number) {
-    const data = await graphql(
-      token,
-      `query($owner:String!, $number:Int!) {
-        organization(login:$owner) {
-          projectV2(number:$number) {
-            id number title
-            fields(first:100) {
-              nodes {
-                __typename
-                ... on ProjectV2Field { id name dataType }
-                ... on ProjectV2SingleSelectField { id name options { id name } }
-                ... on ProjectV2IterationField { id name configuration { iterations { id title startDate duration } } }
-              }
+async function queryProjectByNumber(token, owner, number) {
+  const data = await graphql(
+    token,
+    `query($owner:String!, $number:Int!) {
+      organization(login:$owner) {
+        projectV2(number:$number) {
+          id number title
+          fields(first:100) {
+            nodes {
+              __typename
+              ... on ProjectV2Field { id name dataType }
+              ... on ProjectV2SingleSelectField { id name options { id name } }
+              ... on ProjectV2IterationField { id name configuration { iterations { id title startDate duration } } }
             }
-            items(first:100) {
-              nodes {
-                id
-                content { ... on Issue { id number url } }
-              }
+          }
+          items(first:100) {
+            nodes {
+              id
+              content { ... on Issue { id number url } }
             }
           }
         }
-      }`,
-      { owner: project.owner ?? "drakeshard", number: project.number },
-    );
-    assert(data.organization?.projectV2, `project #${project.number} not found`);
-    return data.organization.projectV2;
+      }
+    }`,
+    { owner, number },
+  );
+  return data.organization?.projectV2 ?? null;
+}
+
+async function createProject(token, project) {
+  const owner = project.owner ?? "drakeshard";
+  const ownerData = await graphql(
+    token,
+    `query($owner:String!) { organization(login:$owner) { id } }`,
+    { owner },
+  );
+  const ownerId = ownerData.organization?.id;
+  assert(ownerId, `organization "${owner}" not found`);
+
+  const created = await graphql(
+    token,
+    `mutation($owner:ID!, $title:String!) {
+      createProjectV2(input:{ownerId:$owner, title:$title}) {
+        projectV2 { id number title }
+      }
+    }`,
+    { owner: ownerId, title: project.title },
+  );
+  assert(created.createProjectV2?.projectV2, `failed to create project "${project.title}"`);
+  return created.createProjectV2.projectV2;
+}
+
+async function createProjectField(token, projectId, field) {
+  const variables = {
+    project: projectId,
+    name: field.name,
+    dataType: field.dataType,
+  };
+
+  let query;
+  if (field.dataType === "SINGLE_SELECT") {
+    variables.options = field.options.map((option) => ({
+      name: option.name,
+      description: option.description ?? "",
+      color: option.color ?? "GRAY",
+    }));
+    query = `mutation(
+      $project:ID!,
+      $name:String!,
+      $dataType:ProjectV2CustomFieldType!,
+      $options:[ProjectV2SingleSelectFieldOptionInput!]
+    ) {
+      createProjectV2Field(
+        input:{
+          projectId:$project,
+          name:$name,
+          dataType:$dataType,
+          singleSelectOptions:$options
+        }
+      ) { projectV2Field { ... on ProjectV2SingleSelectField { id name options { id name } } } }
+    }`;
+  } else {
+    query = `mutation($project:ID!, $name:String!, $dataType:ProjectV2CustomFieldType!) {
+      createProjectV2Field(input:{projectId:$project, name:$name, dataType:$dataType}) {
+        projectV2Field { ... on ProjectV2Field { id name dataType } }
+      }
+    }`;
+  }
+
+  const data = await graphql(token, query, variables);
+  assert(data.createProjectV2Field?.projectV2Field, `failed to create project field "${field.name}"`);
+}
+
+async function ensureProjectFields(token, project, requestedFields = []) {
+  if (!requestedFields.length) return project;
+  const existingNames = new Set(project.fields.nodes.filter(Boolean).map((field) => field.name));
+
+  for (const field of requestedFields) {
+    if (existingNames.has(field.name)) continue;
+    await createProjectField(token, project.id, field);
+  }
+
+  return queryProjectByNumber(token, "drakeshard", project.number);
+}
+
+async function ensureProject(token, project, dryRun = false) {
+  const owner = project.owner ?? "drakeshard";
+  if (project.number) {
+    const found = await queryProjectByNumber(token, owner, project.number);
+    assert(found, `project #${project.number} not found`);
+    return dryRun ? found : ensureProjectFields(token, found, project.fields ?? []);
   }
 
   const data = await graphql(
@@ -334,11 +451,23 @@ async function resolveProject(token, project) {
         projectsV2(first:100) { nodes { id number title } }
       }
     }`,
-    { owner: project.owner ?? "drakeshard" },
+    { owner },
   );
   const match = data.organization?.projectsV2?.nodes?.find((candidate) => candidate.title === project.title);
-  assert(match, `project "${project.title}" not found`);
-  return resolveProject(token, { owner: project.owner ?? "drakeshard", number: match.number });
+
+  if (match) {
+    const found = await queryProjectByNumber(token, owner, match.number);
+    return dryRun ? found : ensureProjectFields(token, found, project.fields ?? []);
+  }
+
+  assert(project.createIfMissing === true, `project "${project.title}" not found and createIfMissing is not true`);
+  if (dryRun) {
+    return { id: null, number: -1, title: project.title, fields: { nodes: [] }, items: { nodes: [] }, dryRun: true };
+  }
+
+  const created = await createProject(token, project);
+  const found = await queryProjectByNumber(token, owner, created.number);
+  return ensureProjectFields(token, found, project.fields ?? []);
 }
 
 async function ensureProjectItem(token, project, issueNodeId, issueUrl) {
@@ -404,13 +533,24 @@ async function setProjectFields(token, project, itemId, values) {
 
 export async function applyPlanningRequest(token, request, { dryRun = false } = {}) {
   validatePlanningRequest(request);
+
+  const project = request.project ? await ensureProject(token, request.project, dryRun) : null;
+  if (!request.repository) {
+    return {
+      repository: null,
+      milestone: null,
+      project: project ? { number: project.number, title: project.title } : null,
+      dryRun,
+      results: [],
+    };
+  }
+
   const repositoryState = await githubRequest(token, `/repos/${request.repository}`);
   assert(
     repositoryState.visibility === "public",
     "v1 planning bootstrap only supports public target repositories because the control request is stored in the public drakeshard/.github repository",
   );
   const milestone = await ensureMilestone(token, request.repository, request.milestone, dryRun);
-  const project = request.project && !dryRun ? await resolveProject(token, request.project) : null;
   const results = [];
 
   for (const item of request.issues) {
@@ -432,6 +572,7 @@ export async function applyPlanningRequest(token, request, { dryRun = false } = 
   return {
     repository: request.repository,
     milestone: milestone.title,
+    project: project ? { number: project.number, title: project.title } : null,
     dryRun,
     results,
   };
@@ -444,13 +585,14 @@ function summaryMarkdown(summary) {
   return [
     `## Planning bootstrap ${summary.dryRun ? "dry run" : "completed"}`,
     "",
-    `Repository: \`${summary.repository}\``,
-    `Milestone: \`${summary.milestone}\``,
+    summary.repository ? `Repository: \`${summary.repository}\`` : null,
+    summary.milestone ? `Milestone: \`${summary.milestone}\`` : null,
+    summary.project ? `Project: \`#${summary.project.number} ${summary.project.title}\`` : null,
     "",
     "| Work ID | Result | Issue |",
     "| --- | --- | --- |",
     rows,
-  ].join("\n");
+  ].filter((line) => line !== null).join("\n");
 }
 
 async function main() {

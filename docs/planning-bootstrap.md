@@ -10,7 +10,7 @@ The expected flow is:
 
 1. an engineering assistant reads the canonical controlled Drive sources and the live target repository;
 2. the assistant resolves the approved work and produces a planning request issue in `drakeshard/.github`;
-3. this workflow validates the request and upserts GitHub milestones, labels, issues, Project membership, and Project fields;
+3. this workflow validates the request and can create/reuse an organization Project v2, create supported custom Project fields, and upsert GitHub milestones, labels, issues, Project membership, and Project field values;
 4. generated work is keyed by stable Drakeshard work IDs so reruns update instead of duplicating;
 5. controlled documentation is reconciled separately when material state or governance changes.
 
@@ -124,6 +124,33 @@ Unknown fields, unsupported field types, unknown select options, and unknown ite
 
 Use a Project number when practical because it is an unambiguous stable lookup. A Project title is also accepted.
 
+To bootstrap a Project before its target repository exists, submit a project-only request:
+
+```json
+{
+  "project": {
+    "owner": "drakeshard",
+    "title": "Drakeshard Tactical v0.1",
+    "createIfMissing": true,
+    "fields": [
+      {
+        "name": "Readiness",
+        "dataType": "SINGLE_SELECT",
+        "options": [
+          { "name": "Ready", "color": "GREEN" },
+          { "name": "Backlog", "color": "GRAY" },
+          { "name": "Blocked", "color": "RED" }
+        ]
+      },
+      { "name": "Work ID", "dataType": "TEXT" },
+      { "name": "Effort", "dataType": "NUMBER" }
+    ]
+  }
+}
+```
+
+Project field creation currently supports `TEXT`, `NUMBER`, `DATE`, and `SINGLE_SELECT`. Existing fields are reused by name; missing requested fields are created. Iteration-field creation/configuration remains outside v1 because GitHub's iteration configuration requires separate lifecycle handling.
+
 ## Dry run and retry
 
 Use **Actions → Planning Bootstrap → Run workflow** with:
@@ -140,6 +167,7 @@ Automatic issue-event execution is non-dry-run and closes the request issue afte
 - Project owner must be `drakeshard`;
 - automatic execution only accepts request issues whose author has write, maintain, or admin permission on `drakeshard/.github`;
 - architecture decisions, repository/package creation, releases, merges, and dependency-unblocking policy are outside this workflow;
+- Project v2 creation is allowed only for the `drakeshard` organization and only when the request explicitly sets `createIfMissing: true`;
 - GitHub App credentials exist only in Actions configuration.
 
 ## v1 non-goals
