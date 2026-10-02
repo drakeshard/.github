@@ -592,7 +592,7 @@ function summaryMarkdown(summary) {
     "| Work ID | Result | Issue |",
     "| --- | --- | --- |",
     rows,
-  ].join("\n");
+  ].filter((line) => line !== null).join("\n");
 }
 
 async function main() {
