@@ -189,3 +189,13 @@ test("milestone due dates are optional by contract", () => {
   delete payload.milestone.dueOn;
   assert.equal(validatePlanningRequest(payload), payload);
 });
+
+
+test("label upsert contract remains valid for shared label reuse", () => {
+  const payload = request();
+  payload.issues[0].labels = [
+    { name: "type:feature", color: "0E8A16", description: "Feature" },
+    { name: "area:core", color: "0052CC", description: "Core" },
+  ];
+  assert.equal(validatePlanningRequest(payload), payload);
+});
